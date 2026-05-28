@@ -1,25 +1,27 @@
-# Nano-vLLM 保姆级源码拆解
+# Nano-vLLM 保姆级源码拆解 / A Nanny-Level Source Code Breakdown
 
 > 一个仅 **1200 行的 vLLM 精简实现**，覆盖了 LLM 推理引擎所有核心概念。  
-> 本文档对每一行代码、每一个设计决策进行深度解析。
+> A lightweight vLLM implementation in just **1,200 lines of code**, covering all core concepts of an LLM inference engine.  
+>  
+> 本文档对每一行代码、每一个设计决策进行深度解析。  
+> This document provides in-depth analysis of every line of code and every design decision.
 
 ---
 
-## 目录
+## 目录 / Table of Contents
 
-1. [快速概览](#1-快速概览)
-2. [文件结构](#2-文件结构)
-3. [数据流向：从 prompt 到 token 的完整旅程](#3-数据流向从-prompt-到-token-的完整旅程)
-4. [核心模块逐文件拆解](#4-核心模块逐文件拆解)
-5. [关键概念深度解析](#5-关键概念深度解析)
-   - [实测性能对比 & 核心特性覆盖度](#实测性能对比)
-6. [图表索引](#6-图表索引)
-7. [与 vLLM 的对比](#与-vllm-的对比)
-8. [学习路线建议](#学习路线建议)
+1. [快速概览 / Quick Overview](#1-快速概览--quick-overview)
+2. [文件结构 / File Structure](#2-文件结构--file-structure)
+3. [数据流向 / Data Flow](#3-数据流向从-prompt-到-token-的完整旅程--data-flow-from-prompt-to-token)
+4. [核心模块逐文件拆解 / Core Module Breakdown](#4-核心模块逐文件拆解--core-module-breakdown)
+5. [关键概念深度解析 / Key Concepts Deep Dive](#5-关键概念深度解析--key-concepts-deep-dive)
+6. [图表索引 / Chart Index](#6-图表索引--chart-index)
+7. [与 vLLM 的对比 / Comparison](#与-vllm-的对比--comparison-with-vllm)
+8. [学习路线建议 / Learning Roadmap](#学习路线建议--learning-roadmap)
 
 ---
 
-## 1. 快速概览
+## 1. 快速概览 / Quick Overview
 
 ```
 nanovllm/
@@ -49,38 +51,43 @@ nanovllm/
 
 **一句话总结：** nano-vLLM 是一个 mini-batch 离线推理引擎，支持 PagedAttention、Prefix Caching、Continuous Batching、CUDA Graph 和 Tensor Parallelism。
 
-### 架构全景图
+**One-line summary:** nano-vLLM is a mini-batch offline inference engine supporting PagedAttention, Prefix Caching, Continuous Batching, CUDA Graph, and Tensor Parallelism.
+
+### 架构全景图 / Architecture Overview
 
 ![推理流水线架构](charts/chart3_architecture.png)
 
-### 模块依赖关系
+### 模块依赖关系 / Module Dependencies
 
 ![模块依赖关系](charts/chart6_dependency.png)
 
 ---
 
-## 2. 文件结构
+## 2. 文件结构 / File Structure
 
-| 文件 | 行数 | 核心职责 |
+| 文件 / File | 行数 / Lines | 核心职责 / Core Responsibility |
 |------|------|---------|
-| `llm_engine.py` | 70 | 顶层 API，生成主循环，吞吐监控 |
-| `scheduler.py` | 92 | Continuous Batching 调度，prefill/decode 决策 |
-| `block_manager.py` | 120 | 物理 KV 块分配/回收，Prefix Caching 哈希匹配 |
-| `model_runner.py` | 257 | 模型加载、KV Cache 分配、CUDA Graph、TP 通信 |
-| `sequence.py` | 79 | 单序列状态跟踪（token_ids, block_table, status） |
-| `attention.py` | 58 | PagedAttention 计算：存储 KV → 调用 flash_attn |
-| `qwen3.py` | 182 | Qwen3 模型定义（Attention, MLP, DecoderLayer） |
-| `linear.py` | 156 | 4 种 TP 并行线性层 |
-| `embed_head.py` | 67 | VocabParallelEmbedding + ParallelLMHead |
-| 其余 | <50 各 | 辅助模块 |
+| `llm_engine.py` | 70 | 顶层 API，生成主循环，吞吐监控 / Top-level API, generation loop, throughput monitoring |
+| `scheduler.py` | 92 | Continuous Batching 调度，prefill/decode 决策 / Continuous Batching scheduling, prefill/decode decisions |
+| `block_manager.py` | 120 | 物理 KV 块分配/回收，Prefix Caching 哈希匹配 / Physical KV block allocation/recycling, Prefix Caching hash matching |
+| `model_runner.py` | 257 | 模型加载、KV Cache 分配、CUDA Graph、TP 通信 / Model loading, KV Cache allocation, CUDA Graph, TP communication |
+| `sequence.py` | 79 | 单序列状态跟踪（token_ids, block_table, status） / Single sequence state tracking (token_ids, block_table, status) |
+| `attention.py` | 58 | PagedAttention 计算：存储 KV → 调用 flash_attn / PagedAttention computation: store KV → call flash_attn |
+| `qwen3.py` | 182 | Qwen3 模型定义（Attention, MLP, DecoderLayer） / Qwen3 model definition (Attention, MLP, DecoderLayer) |
+| `linear.py` | 156 | 4 种 TP 并行线性层 / 4 types of Tensor-Parallel linear layers |
+| `embed_head.py` | 67 | VocabParallelEmbedding + ParallelLMHead / VocabParallelEmbedding + ParallelLMHead |
+| 其余 | <50 各 | 辅助模块 / Auxiliary modules |
 
-### 代码量分布
+### 代码量分布 / Code Distribution
 
 ![代码量分布](charts/chart2_code_distribution.png)
 
 ---
 
-## 3. 数据流向：从 prompt 到 token 的完整旅程
+## 3. 数据流向：从 prompt 到 token 的完整旅程 / Data Flow: From Prompt to Token
+
+用户调用 llm.generate(prompts, sampling_params) 的处理流程：
+The processing flow when a user calls llm.generate(prompts, sampling_params):
 
 ```
 用户调用 llm.generate(prompts, sampling_params)
@@ -118,12 +125,16 @@ nanovllm/
 
 ---
 
-## 4. 核心模块逐文件拆解
+## 4. 核心模块逐文件拆解 / Core Module Breakdown
+
+下文逐一拆解每个源文件的职责、关键数据结构和核心算法。
+Below we break down each source file's responsibilities, key data structures, and core algorithms.
 
 ---
 
-### 4.1 config.py — 配置中心
+### 4.1 config.py — 配置中心 / Configuration Hub
 
+```python
 ```python
 @dataclass(slots=True)
 class Config:
@@ -145,8 +156,9 @@ class Config:
 
 ---
 
-### 4.2 sampling_params.py — 采样参数
+### 4.2 sampling_params.py — 采样参数 / Sampling Parameters
 
+```python
 ```python
 @dataclass(slots=True)
 class SamplingParams:
@@ -159,7 +171,10 @@ class SamplingParams:
 
 ---
 
-### 4.3 sequence.py — 序列对象
+### 4.3 sequence.py — 序列对象 / Sequence Object
+
+`Sequence` 是整个系统中最核心的数据结构，代表**一条正在处理的请求**。
+`Sequence` is the most central data structure in the entire system, representing **a request being processed**.
 
 `Sequence` 是整个系统中最核心的数据结构，代表**一条正在处理的请求**。
 
@@ -205,7 +220,10 @@ class Sequence:
 
 ---
 
-### 4.4 block_manager.py — KV Cache 块管理 & Prefix Caching
+### 4.4 block_manager.py — KV Cache 块管理 & Prefix Caching / Block Manager & Prefix Caching
+
+这是 **PagedAttention 的实现核心**，管理物理 KV Cache 块的分配、回收和复用。
+This is the **core implementation of PagedAttention**, managing allocation, recycling, and reuse of physical KV Cache blocks.
 
 这是 **PagedAttention 的实现核心**，管理物理 KV Cache 块的分配、回收和复用。
 
@@ -298,7 +316,10 @@ def compute_hash(cls, token_ids, prefix=-1):
 
 ---
 
-### 4.5 scheduler.py — 调度器 & Continuous Batching
+### 4.5 scheduler.py — 调度器 & Continuous Batching / Scheduler & Continuous Batching
+
+调度器是推理引擎的「大脑」，决定每轮 step 应该处理哪些序列。
+The scheduler is the "brain" of the inference engine, deciding which sequences to process in each step.
 
 调度器是推理引擎的「大脑」，决定每轮 step 应该处理哪些序列。
 
@@ -378,7 +399,9 @@ def postprocess(seqs, token_ids, is_prefill):
 
 ---
 
-### 4.6 context.py — 全局上下文传递
+### 4.6 context.py — 全局上下文传递 / Global Context Passing
+
+在 prefill 和 decode 的 attention 计算中，需要传递大量元信息。To avoid passing parameters explicitly in every function signature, nano-vLLM uses a **global variable** pattern.
 
 在 prefill 和 decode 的 attention 计算中，需要传递大量元信息（cu_seqlens、slot_mapping、block_tables 等）。为了避免在每个函数签名中显式传递，nano-vllm 使用了**全局变量**模式：
 
@@ -405,7 +428,10 @@ def reset_context():                               # 重置
 
 ---
 
-### 4.7 model_runner.py — 模型执行引擎
+### 4.7 model_runner.py — 模型执行引擎 / Model Execution Engine
+
+这是与 GPU 直接交互的模块，也是最复杂的模块（257 行）。
+This is the module that directly interacts with the GPU, and also the most complex module (257 lines).
 
 这是与 GPU 直接交互的模块，也是最复杂的模块（257 行）。
 
@@ -515,7 +541,7 @@ Rank 1~N:        read_shm() → call("run", seqs, is_prefill) → NCCL 同步
 
 ---
 
-### 4.8 attention.py — PagedAttention 计算
+### 4.8 attention.py — PagedAttention 计算 / PagedAttention Computation
 
 ```python
 class Attention(nn.Module):
@@ -559,7 +585,7 @@ def store_kvcache_kernel(key_ptr, value_ptr, k_cache_ptr, v_cache_ptr,
 
 ---
 
-### 4.9 sampler.py — 采样器
+### 4.9 sampler.py — 采样器 / Sampler
 
 ```python
 class Sampler(nn.Module):
@@ -578,7 +604,7 @@ class Sampler(nn.Module):
 
 ---
 
-### 4.10 linear.py — 张量并行线性层
+### 4.10 linear.py — 张量并行线性层 / Tensor-Parallel Linear Layers
 
 定义了 4 种线性层变体：
 
@@ -630,7 +656,7 @@ def weight_loader(self, param, loaded_weight):
 
 ---
 
-### 4.11 embed_head.py — 词表并行嵌入 & LM Head
+### 4.11 embed_head.py — 词表并行嵌入 & LM Head / Vocab-Parallel Embedding & LM Head
 
 #### VocabParallelEmbedding
 
@@ -657,7 +683,7 @@ Forward 时：
 
 ---
 
-### 4.12 rotary_embedding.py — 旋转位置编码
+### 4.12 rotary_embedding.py — 旋转位置编码 / Rotary Position Embedding
 
 标准 RoPE 实现：
 
@@ -676,7 +702,7 @@ cos_sin_cache = [max_position_embeddings, 1, head_dim]
 
 ---
 
-### 4.13 layernorm.py — RMSNorm
+### 4.13 layernorm.py — RMSNorm / RMS Normalization
 
 实现了两种变体：
 
@@ -696,7 +722,7 @@ def add_rms_forward(x, residual):
 
 ---
 
-### 4.14 activation.py — SiLU Gate
+### 4.14 activation.py — SiLU Gate / SwiGLU Activation
 
 ```python
 class SiluAndMul(nn.Module):
@@ -712,7 +738,7 @@ class SiluAndMul(nn.Module):
 
 ---
 
-### 4.15 qwen3.py — 模型结构
+### 4.15 qwen3.py — 模型结构 / Model Architecture
 
 完整的 Qwen3 模型定义，三层结构：
 
@@ -759,7 +785,7 @@ class Qwen3ForCausalLM(nn.Module):
 
 ---
 
-### 4.16 loader.py — 权重加载
+### 4.16 loader.py — 权重加载 / Weight Loading
 
 ```python
 def load_model(model, path):
@@ -780,7 +806,7 @@ def load_model(model, path):
 
 ---
 
-### 4.17 llm_engine.py — 引擎主循环
+### 4.17 llm_engine.py — 引擎主循环 / Engine Main Loop
 
 ```python
 class LLMEngine:
@@ -821,19 +847,28 @@ atexit.register(self.exit)   # 确保异常退出时也能释放资源
 
 ---
 
-## 5. 关键概念深度解析
+## 5. 关键概念深度解析 / Key Concepts Deep Dive
 
-### 实测性能对比
+### 实测性能对比 / Real-World Performance Comparison
+
+在 **NVIDIA A10 (24GB)** 上，使用 **Qwen3-0.6B** 模型，单请求 `max_tokens=64` 的 decode 吞吐量对比：
+On an **NVIDIA A10 (24GB)** with the **Qwen3-0.6B** model, decoding throughput comparison for a single request with `max_tokens=64`:
 
 在 **NVIDIA A10 (24GB)** 上，使用 **Qwen3-0.6B** 模型，单请求 `max_tokens=64` 的 decode 吞吐量对比：
 
 ![性能对比](charts/chart1_performance.png)
 
-### 核心特性覆盖度
+### 核心特性覆盖度 / Feature Coverage Radar
 
 ![特性雷达图](charts/chart4_features_radar.png)
 
-### 5.1 PagedAttention
+### 5.1 PagedAttention / PagedAttention
+
+**问题/Problem：** 传统做法给每条序列预分配一个连续的 `[max_len, kv_dim]` KV cache，即使序列实际长度远小于 max_len 也浪费显存。
+Traditional approach pre-allocates a contiguous `[max_len, kv_dim]` KV cache for each sequence, wasting memory when actual length is much shorter than max_len.
+
+**PagedAttention 的解法/Solution：** 将 KV Cache 切分成固定大小的块（block），通过 `block_table` 做逻辑到物理的映射。
+Divide KV Cache into fixed-size blocks, and use a `block_table` for logical-to-physical mapping.
 
 **问题：** 传统做法给每条序列预分配一个连续的 `[max_len, kv_dim]` KV cache，即使序列实际长度远小于 max_len 也浪费显存。
 
@@ -851,7 +886,25 @@ atexit.register(self.exit)   # 确保异常退出时也能释放资源
 - `block_table` 是 Sequence 的属性，存储该序列使用的物理块 ID 列表
 - Attention 计算时通过 `block_table` + `flash_attn_with_kvcache` 的 `block_table` 参数来索引
 
-### 5.2 Prefix Caching
+### 5.2 Prefix Caching / Prefix Caching
+
+![PagedAttention 内存布局 & Prefix Caching](charts/chart5_memory_layout.png)
+
+**问题/Problem：** 多条请求共享相同的前缀（如系统 prompt），重复 prefill 浪费算力。
+Multiple requests share the same prefix (e.g., system prompt), and repeated prefill wastes computation.
+
+**解法/Solution：**
+1. 每个物理块记录它的 token_ids 和 xxhash 哈希值
+Each physical block records its token_ids and xxhash hash value
+2. `can_allocate()` 时检查是否有哈希匹配的块
+When calling `can_allocate()`, check if any block matches the hash
+3. 如果有，直接复用该块的 KV cache，不需要重新计算
+If found, directly reuse that block's KV cache without recomputation
+4. 通过 ref_count 引用计数管理共享块的生命周期
+Manage shared block lifecycle via ref_count reference counting
+
+**链式哈希的必要性/Why chained hashing：** 确保前缀的连续性。如果两个序列的前 512 个 token（2 个 block）相同，但第 513~768 个 token 不同，链式哈希保证前 2 个块能匹配。
+Ensures prefix continuity. If two sequences share the first 512 tokens (2 blocks) but differ at tokens 513~768, chained hashing guarantees the first 2 blocks match.
 
 ![PagedAttention 内存布局 & Prefix Caching](charts/chart5_memory_layout.png)
 
@@ -865,7 +918,13 @@ atexit.register(self.exit)   # 确保异常退出时也能释放资源
 
 **链式哈希的必要性：** 确保前缀的连续性。如果两个序列的前 512 个 token（2 个 block）相同，但第 513~768 个 token 不同，链式哈希保证前 2 个块能匹配，第 3 个块无法匹配。
 
-### 5.3 Continuous Batching
+### 5.3 Continuous Batching / Continuous Batching
+
+**问题/Problem：** 传统推理一次处理完一条请求，显存利用率低。
+Traditional inference processes one request at a time, resulting in low GPU memory utilization.
+
+**解法/Solution：** 把多条请求的 prefill 和 decode 混在一起调度。每轮 step 既可以做 prefill（一次处理多个 token），也可以做 decode（每条序列处理 1 个 token）。
+Mix prefill and decode of multiple requests in scheduling. Each step can do either prefill (process many tokens at once) or decode (process 1 token per sequence).
 
 **问题：** 传统推理一次处理完一条请求，显存利用率低。
 
@@ -881,7 +940,13 @@ Step 4:  Decode A(1t) + Decode B(1t) + Prefill 序列 C (50 tokens)
 
 **代码中：** `scheduler.schedule()` 返回 `(seqs, is_prefill)`，`is_prefill=True` 时 batch 中所有序列都是 prefill，`is_prefill=False` 时都是 decode。不支持 prefill 和 decode 混合在同一 batch（这是简化）。
 
-### 5.4 Chunked Prefill
+### 5.4 Chunked Prefill / Chunked Prefill
+
+**问题/Problem：** 一条长 prompt 的 prefill 可能占满 `max_num_batched_tokens` 配额，导致其他序列饿死。
+A long prompt's prefill can consume the entire `max_num_batched_tokens` quota, starving other sequences.
+
+**解法/Solution：** 允许将一条长序列的 prefill 分多次完成。
+Allow a long sequence's prefill to be completed across multiple rounds.
 
 **问题：** 一条长 prompt 的 prefill 可能占满 `max_num_batched_tokens` 配额，导致其他序列饿死。
 
@@ -898,7 +963,13 @@ if seq.num_cached_tokens + seq.num_scheduled_tokens == seq.num_tokens:
 
 但 nano-vllm 的限制是：**最多只有第一条序列可以做 chunked prefill**（`if remaining < num_tokens and scheduled_seqs: break`）。
 
-### 5.5 CUDA Graph
+### 5.5 CUDA Graph / CUDA Graph
+
+**问题/Problem：** 每步推理都需要 CPU 逐个 launch 几十上百个 CUDA kernel，launch overhead 对于小 batch decode 来说不可忽略。
+Each inference step requires the CPU to launch dozens or hundreds of CUDA kernels one by one — launch overhead is significant for small-batch decoding.
+
+**解法/Solution：** 将一次完整的前向传播"录制"成一个 CUDA Graph，后续直接 `graph.replay()`，跳过所有 CPU-side launch overhead。
+Record a complete forward pass into a CUDA Graph, then simply call `graph.replay()` to skip all CPU-side launch overhead.
 
 **问题：** 每步推理都需要 CPU 逐个 launch 几十上百个 CUDA kernel，launch overhead 对于小 batch decode 来说不可忽略。
 
@@ -909,7 +980,13 @@ if seq.num_cached_tokens + seq.num_scheduled_tokens == seq.num_tokens:
 - Prefill 和图更大的 decode 走 eager 模式
 - 捕获多种 batch size（1, 2, 4, 8, 16, 32, ...）尽可能覆盖实际需求
 
-### 5.6 Tensor Parallelism
+### 5.6 Tensor Parallelism / Tensor Parallelism
+
+**问题/Problem：** 一个大模型单卡放不下。
+A large model cannot fit on a single GPU.
+
+**解法/Solution：** 将模型参数沿一定维度切分到多个 GPU。
+Split model parameters across multiple GPUs along a certain dimension.
 
 **问题：** 一个大模型单卡放不下。
 
@@ -932,7 +1009,7 @@ Row Parallel (切输入维度):
 
 ---
 
-## 使用示例
+## 使用示例 / Usage Example
 
 ```python
 from nanovllm import LLM, SamplingParams
@@ -948,7 +1025,7 @@ for output in outputs:
 
 ---
 
-## 6. 图表索引
+## 6. 图表索引 / Chart Index
 
 | 图表 | 说明 |
 |------|------|
@@ -961,20 +1038,20 @@ for output in outputs:
 
 ---
 
-## 与 vLLM 的对比
+## 与 vLLM 的对比 / Comparison with vLLM
 
-| 特性 | nano-vLLM | vLLM |
+| 特性 / Feature | nano-vLLM | vLLM |
 |------|-----------|------|
-| 代码量 | ~1200 行 | 数十万行 |
-| 模型支持 | Qwen3 一种 | 100+ 种架构 |
-| 推理模式 | 离线 batch | 在线 serving + 离线 |
-| Continuous Batching | ✅ 简化版 | ✅ 完整 |
+| 代码量 / Code Size | ~1200 行 | 数十万行 / 100K+ lines |
+| 模型支持 / Model Support | Qwen3 一种 | 100+ 种架构 / 100+ architectures |
+| 推理模式 / Inference Mode | 离线 batch / Offline batch | 在线 serving + 离线 / Online + Offline |
+| Continuous Batching | ✅ 简化版 / Simplified | ✅ 完整 / Full |
 | PagedAttention | ✅ | ✅ |
 | Prefix Caching | ✅ 基于 xxhash | ✅ 基于 hash |
-| CUDA Graph | ✅ decode 部分 | ✅ 全面 |
-| Tensor Parallelism | ✅ 多进程 SHM | ✅ Ray/ZMQ 多进程 |
+| CUDA Graph | ✅ decode 部分 / Decode only | ✅ 全面 / Full |
+| Tensor Parallelism | ✅ 多进程 SHM / Multi-process SHM | ✅ Ray/ZMQ 多进程 |
 | Pipeline Parallelism | ❌ | ✅ |
-| Chunked Prefill | ✅ 第一序列 | ✅ 完整 |
+| Chunked Prefill | ✅ 第一序列 / First seq only | ✅ 完整 / Full |
 | Speculative Decoding | ❌ | ✅ |
 | 量化 (AWQ/GPTQ) | ❌ | ✅ |
 | LoRA | ❌ | ✅ |
@@ -982,7 +1059,7 @@ for output in outputs:
 
 ---
 
-## 学习路线建议
+## 学习路线建议 / Learning Roadmap / Learning Roadmap
 
 1. **先看 flow**：跟着第 3 节的数据流向图，理解一条 prompt 如何变成文本
 2. **看 Sequence**：理解 `sequence.py` 的所有属性，这是贯穿全系统的数据结构
