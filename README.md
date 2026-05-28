@@ -103,25 +103,25 @@ The processing flow when a user calls llm.generate(prompts, sampling_params):
 │  tokenizer.encode(prompt) → Sequence(token_ids, sp)    │
 │                                                    │   │
 │  while not scheduler.is_finished():    ◄───────────┘   │
-│      │                                                  │
-│      ▼                                                  │
-│  step():                                                │
-│    ├─ scheduler.schedule()                              │
-│    │    ├─ 是 prefill? → 选 waiting 序列，分配块         │
-│    │    └─ 是 decode?  → 选 running 序列，每人1 token    │
+│      │                                                 │
+│      ▼                                                 │
+│  step():                                               │
+│    ├─ scheduler.schedule()                             │
+│    │    ├─ 是 prefill? → 选 waiting 序列，分配块          │
+│    │    └─ 是 decode?  → 选 running 序列，每人1 token     │
 │    │                    返回 (seqs, is_prefill)         │
-│    │                                                    │
-│    ├─ model_runner.run(seqs, is_prefill)                │
-│    │    ├─ prepare_prefill/decode()                     │
-│    │    │   构造 input_ids, positions, slot_mapping      │
-│    │    │   写入全局 Context                             │
-│    │    ├─ run_model() → 前向推理 / CUDA Graph replay   │
+│    │                                                   │
+│    ├─ model_runner.run(seqs, is_prefill)               │
+│    │    ├─ prepare_prefill/decode()                    │
+│    │    │   构造 input_ids, positions, slot_mapping     |
+│    │    │   写入全局 Context                             |
+│    │    ├─ run_model() → 前向推理 / CUDA Graph replay    │
 │    │    └─ sampler(logits) → token_ids                  │
 │    │                                                    │
 │    └─ scheduler.postprocess(seqs, token_ids)            │
-│         ├─ hash_blocks() → 写入前缀缓存哈希表            │
+│         ├─ hash_blocks() → 写入前缀缓存哈希表              │
 │         ├─ seq.append_token(token_id)                   │
-│         └─ 判断是否 EOS / 达到 max_tokens → finish      │
+│         └─ 判断是否 EOS / 达到 max_tokens → finish        │
 │                                                         │
 │  tokenizer.decode(completion_ids) → 返回文本             │
 └────────────────────────────────────────────────────────┘
