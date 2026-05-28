@@ -82,6 +82,10 @@ nanovllm/
 
 ![代码量分布](charts/chart2_code_distribution.png)
 
+### 代码模块占比 / Module Proportion
+
+![代码模块占比饼图](charts/chart7_module_pie.png)
+
 ---
 
 ## 3. 数据流向：从 prompt 到 token 的完整旅程 / Data Flow: From Prompt to Token
@@ -176,7 +180,7 @@ class SamplingParams:
 `Sequence` 是整个系统中最核心的数据结构，代表**一条正在处理的请求**。
 `Sequence` is the most central data structure in the entire system, representing **a request being processed**.
 
-`Sequence` 是整个系统中最核心的数据结构，代表**一条正在处理的请求**。
+![Sequence 状态机](charts/chart8_state_machine.png)
 
 ```python
 class Sequence:
@@ -854,9 +858,21 @@ atexit.register(self.exit)   # 确保异常退出时也能释放资源
 在 **NVIDIA A10 (24GB)** 上，使用 **Qwen3-0.6B** 模型，单请求 `max_tokens=64` 的 decode 吞吐量对比：
 On an **NVIDIA A10 (24GB)** with the **Qwen3-0.6B** model, decoding throughput comparison for a single request with `max_tokens=64`:
 
-在 **NVIDIA A10 (24GB)** 上，使用 **Qwen3-0.6B** 模型，单请求 `max_tokens=64` 的 decode 吞吐量对比：
-
 ![性能对比](charts/chart1_performance.png)
+
+### Batch Size 扩展性 / Batch Scalability
+
+Continuous Batching 的核心优势在于高并发、大 batch 时吞吐量不会线性下降：
+The core advantage of Continuous Batching is that throughput does not degrade linearly at high concurrency:
+
+![Batch Size 扩展性曲线](charts/chart10_batch_scalability.png)
+
+### 推理时间线 / Inference Timeline
+
+Prefill 和 Decode 在每 step 中的耗时分布及累计 token 处理量：
+Per-step time distribution of Prefill and Decode, and cumulative token processing:
+
+![推理时间线](charts/chart9_inference_timeline.png)
 
 ### 核心特性覆盖度 / Feature Coverage Radar
 
@@ -1027,14 +1043,18 @@ for output in outputs:
 
 ## 6. 图表索引 / Chart Index
 
-| 图表 | 说明 |
+| 图表 | 说明 / Description |
 |------|------|
-| ![chart3](charts/chart3_architecture.png) | **推理流水线架构图** — Tokenizer → Scheduler → ModelRunner → PagedAttention 的数据流 |
-| ![chart6](charts/chart6_dependency.png) | **模块依赖关系图** — 18 个源文件之间的 import 关系 |
-| ![chart2](charts/chart2_code_distribution.png) | **代码量分布图** — 按目录分类的各文件代码行数 |
-| ![chart1](charts/chart1_performance.png) | **性能对比柱状图** — nano-vllm vs transformers vs vLLM decode 吞吐量 |
-| ![chart4](charts/chart4_features_radar.png) | **核心特性雷达图** — nano-vllm vs vLLM 7 大特性覆盖度对比 |
-| ![chart5](charts/chart5_memory_layout.png) | **PagedAttention 内存布局图** — 物理块映射 & Prefix Caching 共享机制 |
+| ![chart3](charts/chart3_architecture.png) | **推理流水线架构图** / Architecture Overview — Tokenizer → Scheduler → ModelRunner → PagedAttention |
+| ![chart6](charts/chart6_dependency.png) | **模块依赖关系图** / Dependency Graph — 18 个源文件之间的 import 关系 |
+| ![chart2](charts/chart2_code_distribution.png) | **代码量分布图** / Code Line Distribution — 按目录分类的各文件代码行数 |
+| ![chart7](charts/chart7_module_pie.png) | **代码模块占比饼图** / Module Proportion Pie — engine/layers/models/utils/config 占比 |
+| ![chart8](charts/chart8_state_machine.png) | **Sequence 状态机图** / State Machine — WAITING → RUNNING → FINISHED + Preempt |
+| ![chart9](charts/chart9_inference_timeline.png) | **推理时间线图** / Inference Timeline — 每 Step Prefill/Decode 耗时 + 累计 Token 曲线 |
+| ![chart1](charts/chart1_performance.png) | **性能对比柱状图** / Performance Bar — nano-vllm vs transformers vs vLLM decode 吞吐量 |
+| ![chart10](charts/chart10_batch_scalability.png) | **Batch Size 扩展性曲线** / Scalability Curve — 三种框架在不同 batch size 下的吞吐量对比 |
+| ![chart4](charts/chart4_features_radar.png) | **核心特性雷达图** / Feature Radar — nano-vllm vs vLLM 7 大特性覆盖度对比 |
+| ![chart5](charts/chart5_memory_layout.png) | **PagedAttention 内存布局图** / Memory Layout — 物理块映射 & Prefix Caching 共享机制 |
 
 ---
 
